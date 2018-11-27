@@ -31,7 +31,9 @@ Use this template to follow along in Lab Week 9. Each code chunk you'll need is 
 
 # a. Load packages 'tidyverse' and 'stargazer':
 
+library(tidyverse)
 
+library(stargazer)
 
 ```
 
@@ -41,10 +43,12 @@ Use this template to follow along in Lab Week 9. Each code chunk you'll need is 
 
 # a. Read in data as 'homes':
 
+homes <- read_csv("slo_homes.csv")
 
 # b. Filter to only include cities "San Luis Obispo", "Santa Maria-Orcutt", "Atascadero", and "Arroyo Grande", and call this new subset 'homes_sub':
 
-
+homes_sub <- homes %>% 
+  filter(City == "San Luis Obispo" | City == "Santa Maria-Orcutt" | City == "Atascadero" | City == "Arroyo Grande")
 
 ```
 
@@ -86,7 +90,7 @@ by_sqft <- ggplot(homes_sub, aes(x = SqFt, y = Price)) +
 
 by_sqft
 
-# Observations here: Does relationship appear ~ linear? Anything else we can pick out re: trends, outliers, etc.? What is the general trend? Any outliers? Is there reason enough for us to omit it?
+# Observations here: Does relationship appear ~ linear? Yes, and observations are randomly collected with no influence on any othe data point. Anything else we can pick out re: trends, outliers, etc.? What is the general trend? Any outliers? Is there reason enough for us to omit it?
 
 ```
 
@@ -107,8 +111,19 @@ Use summary() to view the model output and statistics.
 
 # a. Saturated model: 
 
+homes_lm1 <- lm(Price ~ City + Bedrooms + Bathrooms + SqFt + PricePerSqFt + Status, data = homes_sub)
+
+# Don't use PricePerSqFt because it's calculated from the dependent variable Price, which can lead to biased overfitting of model results
+
+# Reference levels are foreclosure and Arroyo Grande, as they don't appear in the model once you run it
+
+# The model tells you that a house sold with regular status will have a lower price than a foreclosed home, which doesn't make any sense in the real world 
+
+# Furthermore, bedrooms, bathrooms, and sqft variables are all telling you the same thing (how big the house is), messing w/ the model and leading to an issue of co-linearity. Just need to pick one (SqFt).
 
 # b. Model summary:
+
+summary(homes_lm1)
 
 ```
 
@@ -118,7 +133,25 @@ The next model: Exclude price per square foot, and bedrooms/bathrooms (since the
 
 # a. Updated model with variables City, SqFt, and Status:
 
+homes_lm2 <- lm(Price ~ City + SqFt + Status, data = homes_sub)
+
+homes_lm2
+
+# For the San Luis Obispo coefficient, if 2 houses are exactly the same in terms of the other variables, then we would expect a house in San Luis Obispo to sell for $34,525 more than a house in Arroyo Grande.
+
+#If 2 houses are exactly the same in terms of the other variables, then we would expect a house in Atascadero to sell for $202,157 less than a house in Arroyo Grande.
+
+# For every 1 ft increase, we expect price to go up by $245.9 (SqFt coefficient).
+
+# If you take 2 houses that are exactly the same in every other aspect, then a house selling as regular will sell for $210,000 more than a foreclosed home.
+
 # b. Model summary:
+
+summary(homes_lm2)
+
+# P value for status: short sale is large because, as we saw, there is not a big diff in foreclosed home prices and short sale home prices.
+
+ # Adjusted R-squared tells us that our model significantly predicts home prices
 
 ```
 
@@ -128,19 +161,27 @@ Wait...but what if I wanted everything to be with respect to a Regular sale stat
 
 # a. Set Status to class 'factor'
 
+homes_sub$Status <- factor(homes_sub$Status)
 
 # b. Check to ensure it's a factor now
+# Use class() to check
 
 
 # c. Check levels:
 
+levels(homes_sub$Status)
+
+# First one is the one that is set as reference level
 
 # d. Reassign reference level of "Status" to "Regular":
 
+homes_sub$Status <- fct_relevel(homes_sub$Status, "Regular")
 
 # e. Now run the regression again - same equation, but now the reference level is different (Status = Regular): 
 
+homes_lm3 <- lm(Price ~ City + SqFt + Status, data = homes_sub)
 
+summary(homes_lm3)
 
 ```
 
@@ -157,6 +198,14 @@ Then we can evaluate model diagnostics using the plot() function:
 
 # a. Model diagnostics:
 
+plot(homes_lm3)
+
+# Variances for residuals don't have any noticeable patterns
+
+# Based on the qq plot, residual distribution is normal
+
+# Overall, heteroscedasticity is okay, residuals normality looks really good, and conceptually and mathematically, my model is making sense. 
+
 ```
 
 ###6. Model comparison by Akaike Information Criterion
@@ -167,7 +216,15 @@ The AIC is a quantitative metric for model "optimization" that balances complexi
 
 # a. AIC values for each model
 
+sat_aic <- AIC(homes_lm1)
+
+final_aic <- AIC(homes_lm3)
+
 # Answer: which would you pick? 
+
+# Even though saturated model gives you a lower AIC, we shouldn't just pick this model. We know that the saturated model has issues. This is why you should never select a final model based strictly on the AIC.
+
+# I would still pick homes_lm3 because heteroscedasticity is okay, residuals normality looks really good, and conceptually and mathematically, my model is making sense. 
 
 ```
 
@@ -177,6 +234,7 @@ The AIC is a quantitative metric for model "optimization" that balances complexi
 
 # a. Prepare a nice regression table:
 
+stargazer(homes_lm1, homes_lm3, type = "html")
 
 
 # Note: If you want to work with this in Word, save to html, open, copy and paste into Word. 
@@ -229,9 +287,14 @@ Make predictions for the new data using predict():
 
 # a. Make predictions using the new data frame:
 
+price_predict <- predict(homes_lm3, 
+                         newdata = df_new, 
+                         se.fit = TRUE, 
+                         interval = "confidence")
+
 # b. Bind predictions to the data to make it actually useful:
 
-
+predict_df <- data.frame(df_new, price_predict)
 
 ```
 
@@ -240,6 +303,12 @@ Then visualize it!
 ```{r graph, echo = FALSE}
 
 # Create a line graph with square footage on the x-axis, predicted price on y-axis, with color dependent on City and facet_wrapped by sale status (follow along):
+
+predict_graph <- ggplot(predict_df, aes(x = SqFt, y = fit.fit)) +
+  geom_line(aes(color = City)) +
+  facet_wrap(~ Status)
+
+predict_graph
 
 
 ```
